@@ -32,70 +32,97 @@ WiFiServer serverCam(80);
 #define HREF_GPIO_NUM    23
 #define PCLK_GPIO_NUM    22
 
-void flashError() {
-  pinMode(ERROR_PIN, OUTPUT);
-  while(true){
-    digitalWrite(ERROR_PIN, HIGH);
-    delay(250);
-    digitalWrite(ERROR_PIN, LOW);
-    delay(250);
+bool errorState = false;          // true if an error occurs
+unsigned long lastBlink = 0;      // timing for error blink
+bool blinkState = false;
+
+// Non-blocking error blink
+void handleErrorBlink() {
+  if(!errorState) return; // do nothing if no error
+  if(millis() - lastBlink > 250){
+    lastBlink = millis();
+    blinkState = !blinkState;
+    digitalWrite(ERROR_PIN, blinkState);
   }
 }
 
-void sendHelloToFlask() {
-  if(WiFi.status() != WL_CONNECTED) flashError();
+// Trigger flashing error
+void setError() {
+  errorState = true;
+  digitalWrite(ERROR_PIN, LOW); // start blink cycle
+}
+
+bool sendHelloToFlask() {
+  if(WiFi.status() != WL_CONNECTED) return false;
   HTTPClient http;
-  http.begin(String(serverFlask)+"/hello");
+  http.begin(String(serverFlask) + "/hello");
   int httpCode = http.POST("ESP32 Ready");
   http.end();
-  if(httpCode>0) Serial.printf("📡 /hello sent, response: %d\n", httpCode);
-  else flashError();
+  if(httpCode > 0){
+    Serial.printf("📡 /hello sent, response: %d\n", httpCode);
+    return true;
+  }
+  return false;
 }
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   pinMode(ERROR_PIN, OUTPUT);
+  digitalWrite(ERROR_PIN, LOW);
 
   WiFi.begin(ssid, password);
-  int attempts=0;
-  while(WiFi.status()!=WL_CONNECTED){
+  int attempts = 0;
+  while(WiFi.status() != WL_CONNECTED){
     delay(500);
     Serial.print(".");
     attempts++;
-    if(attempts>60) flashError();
+    if(attempts > 60){
+      Serial.println("\n❌ Wi-Fi connect failed!");
+      setError(); // start error blink
+      break;
+    }
   }
-  Serial.println("\n✅ Connected: "+WiFi.localIP().toString());
 
-  sendHelloToFlask();
+  if(WiFi.status() == WL_CONNECTED){
+    Serial.println("\n✅ Connected: " + WiFi.localIP().toString());
+    if(!sendHelloToFlask()) Serial.println("⚠️ Failed to notify Flask");
+  } else {
+    Serial.println("⚠️ Continuing without Flask connection");
+  }
 
   camera_config_t config;
-  config.ledc_channel=LEDC_CHANNEL_0;
-  config.ledc_timer=LEDC_TIMER_0;
-  config.pin_d0=Y2_GPIO_NUM; config.pin_d1=Y3_GPIO_NUM;
-  config.pin_d2=Y4_GPIO_NUM; config.pin_d3=Y5_GPIO_NUM;
-  config.pin_d4=Y6_GPIO_NUM; config.pin_d5=Y7_GPIO_NUM;
-  config.pin_d6=Y8_GPIO_NUM; config.pin_d7=Y9_GPIO_NUM;
-  config.pin_xclk=XCLK_GPIO_NUM; config.pin_pclk=PCLK_GPIO_NUM;
-  config.pin_vsync=VSYNC_GPIO_NUM; config.pin_href=HREF_GPIO_NUM;
-  config.pin_sccb_sda=SIOD_GPIO_NUM; config.pin_sccb_scl=SIOC_GPIO_NUM;
-  config.pin_pwdn=PWDN_GPIO_NUM; config.pin_reset=RESET_GPIO_NUM;
-  config.xclk_freq_hz=20000000;
-  config.pixel_format=PIXFORMAT_JPEG;
-  config.frame_size=FRAMESIZE_UXGA; // 1600x1200
-  config.jpeg_quality=10; // best quality
-  config.fb_count=2;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM; config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM; config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM; config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM; config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM; config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM; config.pin_href = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM; config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_UXGA;
+  config.jpeg_quality = 15;
+  config.fb_count = 2;
 
-  if(esp_camera_init(&config)!=ESP_OK) flashError();
+  if(esp_camera_init(&config) != ESP_OK){
+    Serial.println("❌ Camera init failed!");
+    setError();
+  }
 
   sensor_t * s = esp_camera_sensor_get();
-  s->set_contrast(s,2);
-  s->set_brightness(s,1);
-  s->set_saturation(s,1);
-  s->set_gainceiling(s,GAINCEILING_16X);
-  s->set_exposure_ctrl(s,1);
-  s->set_aec2(s,1);
-  s->set_whitebal(s,1);
+  if(s){
+    s->set_contrast(s,2);
+    s->set_brightness(s,1);
+    s->set_saturation(s,1);
+    s->set_gainceiling(s,GAINCEILING_16X);
+    s->set_exposure_ctrl(s,1);
+    s->set_aec2(s,1);
+    s->set_whitebal(s,1);
+  }
 
   serverCam.begin();
   Serial.println("🌐 Listening for trigger...");
@@ -104,44 +131,51 @@ void setup() {
 void loop() {
   WiFiClient client = serverCam.available();
   if(client){
-    String req = client.readStringUntil('\r');
+    String req = client.readStringUntil('\n');
     client.flush();
 
-    if(req.indexOf("POST /trigger")>=0){
+    if(req.indexOf("POST /trigger") >= 0){
       Serial.println("✨ Trigger received! Countdown...");
-      for(int i=countdownSeconds;i>0;i--){
+      for(int i=countdownSeconds; i>0; i--){
         digitalWrite(LED_PIN,HIGH);
         delay(500);
         digitalWrite(LED_PIN,LOW);
         delay(500);
-        Serial.println("⏳ "+String(i));
+        Serial.println("⏳ " + String(i));
       }
 
-      // Multi-frame capture
       camera_fb_t* fb;
-      camera_fb_t* best_fb=nullptr;
-      size_t max_len=0;
-      for(int i=0;i<5;i++){
+      camera_fb_t* best_fb = nullptr;
+      size_t max_len = 0;
+      for(int i=0; i<5; i++){
         fb = esp_camera_fb_get();
         if(fb){
-          if(fb->len>max_len){
+          if(fb->len > max_len){
             if(best_fb) esp_camera_fb_return(best_fb);
-            best_fb=fb;
-            max_len=fb->len;
+            best_fb = fb;
+            max_len = fb->len;
           } else esp_camera_fb_return(fb);
         }
       }
 
-      if(!best_fb) flashError();
+      if(!best_fb){
+        Serial.println("❌ No frame captured!");
+        setError();
+        return;
+      }
 
-      // Send to Flask
-      if(WiFi.status()!=WL_CONNECTED) flashError();
-      HTTPClient http;
-      http.begin(String(serverFlask)+"/status");
-      http.addHeader("Content-Type","image/jpeg");
-      int httpCode = http.POST(best_fb->buf,best_fb->len);
-      http.end();
-      Serial.printf("📡 Photo sent, response: %d\n",httpCode);
+      if(WiFi.status() == WL_CONNECTED){
+        HTTPClient http;
+        http.begin(String(serverFlask)+"/status");
+        http.addHeader("Content-Type","image/jpeg");
+        int httpCode = http.POST(best_fb->buf,best_fb->len);
+        http.end();
+        Serial.printf("📡 Photo sent, response: %d\n", httpCode);
+      } else {
+        Serial.println("⚠️ Wi-Fi disconnected, cannot send image");
+        setError();
+      }
+
       esp_camera_fb_return(best_fb);
     }
 
@@ -152,4 +186,6 @@ void loop() {
     client.println("OK");
     client.stop();
   }
+
+  handleErrorBlink(); // only blinks if errorState is true
 }

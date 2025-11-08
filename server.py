@@ -30,7 +30,7 @@ def status():
         print(f"📸 Image received and saved as {img_file}")
         enhancer.preprocess_esp32_image(img_file)
         results = recognition.recognize_face_from_image(img_file)
-        print(results)
+        print(results[0]['name'])
 
         return "Image received", 200
     return "No data", 400

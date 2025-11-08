@@ -11,7 +11,8 @@ TARGET_SIZE = (112,112)
 known_encodings = []
 known_names = []
 
-print("📚 Loading known faces...")
+#print("📚 Loading known faces...")
+
 for filename in os.listdir(KNOWN_FACES_DIR):
     if filename.lower().endswith((".jpg", ".png")):
         path = os.path.join(KNOWN_FACES_DIR, filename)
@@ -23,11 +24,6 @@ for filename in os.listdir(KNOWN_FACES_DIR):
         if encodings:
             known_encodings.append(encodings[0])
             known_names.append(name)
-            print(f"✅ Loaded {name} from {filename}")
-        else:
-            print(f"⚠️ No face found in {filename}")
-
-print("🎯 Ready for recognition!")
 
 # ---------------- Recognition ----------------
 def recognize_face_from_image(img_path):
@@ -52,7 +48,7 @@ def recognize_face_from_image(img_path):
 
         results.append({"name": name, "location": (top, right, bottom, left)})
 
-    return name
+    return results
 
 
 # ---------------- Run recognition on captures folder ----------------
