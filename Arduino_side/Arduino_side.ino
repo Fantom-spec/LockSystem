@@ -2,12 +2,13 @@
 #include <MFRC522.h>
 #include <Keypad.h>
 
-// --- RC522 Pins ---
 #define SS_PIN 10
 #define RST_PIN A0 
+#define GREEN_LED A1
+#define BLUE_LED A2
+#define RED_LED A3   
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-// --- Keypad Setup (Pins 2–9) ---
 const byte ROWS = 4;
 const byte COLS = 4;
 
@@ -30,11 +31,27 @@ void setup() {
   Serial.begin(9600);
   SPI.begin();
   mfrc522.PCD_Init();
-  //Serial.println("Place RFID card and then enter PIN...");
+
+  pinMode(GREEN_LED, OUTPUT);
+  pinMode(BLUE_LED, OUTPUT);
+  pinMode(RED_LED, OUTPUT);
 }
 
 void loop() {
-  // --- Step 1: Wait for RFID card ---
+  if (Serial.available() > 0) {
+    char trigger = Serial.read();
+    if (trigger == '1') { 
+      digitalWrite(RED_LED, HIGH);
+      delay(500);
+      digitalWrite(RED_LED, LOW);
+    }
+    else if (trigger == '0') { 
+      digitalWrite(GREEN_LED, HIGH);
+      delay(500);
+      digitalWrite(GREEN_LED, LOW);
+    }
+  }
+
   if (uidString == "") {
     if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
       return;
@@ -42,48 +59,45 @@ void loop() {
 
     uidString = "";
     for (byte i = 0; i < mfrc522.uid.size; i++) {
-      // Ensure 2-digit hex (e.g., "04" instead of "4")
       if (mfrc522.uid.uidByte[i] < 0x10) uidString += "0";
       uidString += String(mfrc522.uid.uidByte[i], HEX);
     }
     uidString.toUpperCase();
-
-    //Serial.print("Card UID: ");
-    //Serial.println(uidString);
+    digitalWrite(GREEN_LED, HIGH);
+    delay(500);
+    digitalWrite(GREEN_LED, LOW);
 
     mfrc522.PICC_HaltA();
     mfrc522.PCD_StopCrypto1();
-
-    //Serial.println("Now enter 4-digit PIN:");
   }
 
-  // --- Step 2: Read 4-digit PIN from keypad ---
   if (uidString != "" && pinString.length() < 4) {
     char key = keypad.getKey();
     if (key) {
+      digitalWrite(BLUE_LED, HIGH);
+      delay(500);
+      digitalWrite(BLUE_LED, LOW);
+
       if (key >= '0' && key <= '9') {
         pinString += key;
-        //Serial.print('*'); // Mask input
       }
       if (key == '#') { // Clear PIN
         pinString = "";
-        //Serial.println("\nPIN cleared.");
       }
     }
   }
 
-  // --- Step 3: When both ready, send UID|PIN ---
   if (uidString != "" && pinString.length() == 4) {
-    //Serial.println();
-    //String output = uidString + "|" + pinString;
-    //Serial.println(output);
-    //Serial.println("Data sent.");
-    String encryptedData=encryptAndReturn(uidString,pinString);
+    delay(100);
+    digitalWrite(GREEN_LED, HIGH);
+    delay(500);
+    digitalWrite(GREEN_LED, LOW);
+
+    String encryptedData = encryptAndReturn(uidString, pinString);
     Serial.println(encryptedData);
-    // Reset for next read
+
     uidString = "";
     pinString = "";
     delay(1000);
-    //Serial.println("\nPlace next card and enter PIN...");
   }
 }

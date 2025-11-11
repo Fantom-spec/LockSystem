@@ -10,7 +10,7 @@ const char* serverFlask = "http://192.168.43.89:5000"; // Flask IP
 // Pins
 const int LED_PIN = 4;
 const int ERROR_PIN = 33;
-const int countdownSeconds = 5;
+const int countdownSeconds = 4;
 
 WiFiServer serverCam(80);
 
@@ -133,7 +133,6 @@ void loop() {
   if(client){
     String req = client.readStringUntil('\n');
     client.flush();
-
     if(req.indexOf("POST /trigger") >= 0){
       Serial.println("✨ Trigger received! Countdown...");
       for(int i=countdownSeconds; i>0; i--){
@@ -143,9 +142,10 @@ void loop() {
         delay(500);
         Serial.println("⏳ " + String(i));
       }
-
+      digitalWrite(LED_PIN,HIGH);
       camera_fb_t* fb;
       camera_fb_t* best_fb = nullptr;
+      digitalWrite(LED_PIN,LOW);
       size_t max_len = 0;
       for(int i=0; i<5; i++){
         fb = esp_camera_fb_get();

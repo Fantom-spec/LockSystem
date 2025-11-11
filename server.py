@@ -30,12 +30,15 @@ def status():
         print(f"📸 Image received and saved as {img_file}")
         enhancer.preprocess_esp32_image(img_file)
         results = recognition.recognize_face_from_image(img_file)
-        print(results[0]['name'])
+        print("IDENTIFIED: ",results.upper())
 
         return "Image received", 200
     return "No data", 400
 
-def send_trigger_to_esp32():
+
+def send_trigger_to_esp32(n):
+    global name
+    name=n
     import requests
     if not os.path.exists(IP_FILE):
         print("⚠️ No ESP32 IP found yet.")
